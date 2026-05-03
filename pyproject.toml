@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spun"
+version = "0.1.0"
+authors = [
+  { name="curvedinf" },
+]
+description = "Durable execution for Wove-shaped Python work"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "cloudpickle",
+    "wove>=2.0.3",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/curvedinf/spun"
+"Bug Tracker" = "https://github.com/curvedinf/spun/issues"
+
+[project.scripts]
+spun = "spun.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+]
+
+[tool.setuptools.package-data]
+spun = ["py.typed"]

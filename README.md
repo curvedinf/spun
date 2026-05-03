@@ -68,6 +68,7 @@ from myapp.reports import render_report
 
 wove.config(
     environments={
+        # Spun defaults to a localhost:7766
         "spun": {"executor": "spun"},
     },
 )
@@ -80,6 +81,7 @@ with weave(account_id="acct_123") as w:
 
     @w.do(environment="spun")
     def report(account):
+        # This function executes on the Spun worker
         return render_report(account)
 
 print(w.result.report)
@@ -91,15 +93,21 @@ events, and returns the result to the weave.
 
 ## Calls
 
-Define worker-space project functions in `calls.py`:
+Define worker-space IO functions in `calls.py`. These allow remotely defined
+weave tasks to use persistent worker-local resources:
 
 ```python
+from myapp.database import DatabasePool
 from spun import call
+
+
+db = DatabasePool.from_env()
 
 
 @call
 def check_db():
-    return "ok"
+    with db.connection() as conn:
+        return conn.fetch_one("select 1 as ok")["ok"] == 1
 ```
 
 Use them from Spun-executed Wove tasks:

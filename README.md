@@ -23,7 +23,11 @@ Useful properties include:
 - **No External Broker**: The MVP does not require Redis, RabbitMQ, Docker,
   Kubernetes, or a separate scheduler process.
 - **Worker-Space Calls**: Define project IO in `calls.py` and call it from
-  Spun-executed Wove tasks with `from spun import call`.
+  application or Wove code with `from spun import call`.
+- **Promise-Like Calls**: `call.name(...)` returns a durable handle with
+  `id`, `status`, `events`, `result()`, `cancel()`, and `stream()`.
+- **Short Orphan Recovery**: Lost call handles remain recoverable for a short
+  default window, so reliability does not depend on the caller surviving.
 - **Scheduled Wove Work**: Schedule functions or `Weave` objects from
   `schedule.py` using Python-shaped schedule objects.
 - **Shared Python Environment**: The default executor runs in-process through
@@ -68,7 +72,6 @@ from myapp.reports import render_report
 
 wove.config(
     environments={
-        # Spun defaults to a localhost:7766
         "spun": {"executor": "spun"},
     },
 )
@@ -123,9 +126,53 @@ with weave() as w:
         return call.check_db()
 ```
 
-Calls are normal Python-shaped handles, but their implementation lives in the
-Spun worker context. That keeps database pools, API clients, browser sessions,
-and other live resources out of task payloads.
+Calls are promise-like durable invocations:
+
+```python
+run = call.check_db()
+
+print(run.id)
+print(run.status)
+print(run.events)
+print(run.result())
+```
+
+`await run` also waits for the result in async code. State-like data is exposed
+as attributes. Actions that wait, cancel, claim, or stream remain methods.
+
+The implementation lives in the Spun worker context. That keeps database pools,
+API clients, browser sessions, and other live resources out of task payloads.
+
+## Orphan Recovery
+
+Orphan recovery is for the failure window where Spun accepted a durable call 
+but the caller died before it could record the call id, acknowledge the result, 
+or return the handle. It is always on but by default short-lived with 5-min TTL.
+
+Give related calls a stable return scope:
+
+```python
+from spun import call
+
+
+with call.scope("request:chat-123"):
+    run = call.answer_user("hello")
+```
+
+If the caller dies, a restarted process can recover matching unacknowledged
+calls during the short recovery window:
+
+```python
+recovered = call.recover(scope="request:chat-123", name="answer_user")
+
+for run in recovered:
+    print(run.status)
+    print(run.result())
+```
+
+Normal `run.result()` consumption acknowledges the orphan entry. The orphan
+queue is not the normal result path; it is a small recovery surface for lost
+return ownership.
 
 ## Schedules
 
@@ -173,10 +220,12 @@ spun status
 spun work
 spun why <work-id>
 spun tail <work-id>
+spun orphans
 ```
 
 `status` shows queue counts. `work` lists recent work. `why` explains the local
-state of one item. `tail` shows its event history.
+state of one item. `tail` shows its event history. `orphans` shows unacknowledged
+short-window call results that can still be recovered.
 
 ## Documentation
 
@@ -192,8 +241,10 @@ restart recovery, artifacts, security, and clustering.
 
 - **The Basics**: start one Spun process and route Wove work through
   `executor="spun"`.
-- **Calls**: define worker-space IO in `calls.py` and use it through
+- **Calls**: define worker-space IO in `calls.py` and use it remotely through
   `from spun import call`.
+- **Orphan Recovery**: recover lost call handles by return scope during Spun's
+  short default orphan window.
 - **Schedules**: define scheduled Wove work in `schedule.py` with `Cron`,
   `Calendar`, `timedelta`, or direct datetime objects.
 - **Monitoring**: use `spun status`, `spun work`, `spun why`, and `spun tail`
@@ -210,7 +261,8 @@ The current implementation includes:
   directory
 - Wove adapter for `executor="spun"`
 - in-process worker execution through sync Wove
-- `@call` and `call.<name>(...)`
+- `@call`, `call.<name>(...)`, and `CallPromise`
+- always-on short-window orphan queue for unacknowledged call handles
 - `@schedule(...)` and `schedule(..., work)`
 - `Cron` and `Calendar` schedule objects
 - restart recovery for work that was running when Spun stopped

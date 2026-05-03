@@ -428,6 +428,7 @@ Spun must:
 - retry eligible work on another compatible peer
 - pause unsafe writes when an unavailable authority owns the only durable store
 - track attempts, events, logs, progress, cancellation, errors, and results
+- track orphaned call results separately from normal result delivery
 - preserve idempotency across retries and client resubmission
 - infer peer capabilities from runtime state
 - infer call availability from group membership and peer environment
@@ -468,6 +469,7 @@ It must track:
 - artifact references for large values
 - idempotency keys
 - call health and capacity
+- orphaned call results
 - group and principal
 - placement and authorization decisions
 
@@ -476,6 +478,58 @@ system. SQLite remains valid in a cluster when one authority owns that ledger
 and other peers route durable writes to it.
 
 Postgres is the first scalable shared storage provider.
+
+## Orphan Queue
+
+The orphan queue is for recovery, not normal execution.
+
+The orphan queue is always on because Spun's implicit contract is reliability.
+It should have a short default recovery window so projects that never need to
+recover lost return handles do not accumulate long-lived operational state.
+
+Normal result delivery should go directly back to the live caller. The orphan
+queue exists for the failure window where Spun has durably accepted or completed
+a call, but the Wove/web-side process died before it recorded the promise id,
+acknowledged the result, or returned the handle to its own caller.
+
+Spun should treat that as an orphaned call result:
+
+```text
+call accepted by Spun
+caller dies before recording the call id
+call finishes
+result waits in the orphan queue
+restarted caller or operator can discover and reconcile it
+```
+
+This is not a general message queue and should not be taught as the normal way
+to consume results. It is a recovery surface for lost return ownership.
+
+To make this possible, durable calls need enough return identity to be
+discoverable without the original in-memory promise object:
+
+- call id
+- call name
+- arguments hash or idempotency key
+- submitter principal
+- return scope
+- parent Wove delivery id or parent Spun call id when available
+- status, result, error, and event history
+- ack state
+
+The return scope can be supplied by a framework adapter, request context,
+session, thread id, user id, explicit idempotency key, or parent Spun call. If
+Spun has no stable return scope, it can still expose the work operationally, but
+it cannot know which restarted process should own the result.
+
+The orphan queue must support:
+
+- listing orphaned results by return scope
+- claiming an orphaned result
+- acknowledging a recovered result
+- replaying missed events when useful
+- expiring old unclaimed or acknowledged entries by policy
+- explaining why a result became orphaned
 
 ## Offline Peers
 
@@ -688,6 +742,9 @@ It must have:
 - code-as-config discovery for `calls.py` and `schedule.py`
 - `from spun import call`
 - `@call` definitions available inside Spun-executed Wove tasks
+- promise-like call handles with `id`, `status`, `events`, `result()`,
+  `cancel()`, and `stream()`
+- always-on short-window orphan queue for unacknowledged call handles
 - `schedule(...)` and `@schedule(...)` for functions and `Weave` objects
 - `timedelta(...)` and `Cron(...)` schedule objects
 - `spun status`

@@ -5,6 +5,7 @@ Durable execution for Wove-shaped Python work.
 """
 
 from .calls import call
+from .promise import CallPromise
 from .runtime import config
 from .schedule import Calendar, Cron, schedule
 from .worker import Worker
@@ -19,6 +20,7 @@ __all__ = [
     "schedule",
     "Cron",
     "Calendar",
+    "CallPromise",
     "Worker",
     "SpunEnvironmentExecutor",
     "config",

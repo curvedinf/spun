@@ -20,3 +20,15 @@ class SerializationError(SpunError):
     """
     Raised when Spun cannot serialize durable work.
     """
+
+
+class CallFailedError(SpunError):
+    """
+    Raised when a durable call finishes with an error.
+    """
+
+
+class CallTimeoutError(SpunError, TimeoutError):
+    """
+    Raised when waiting for a durable call exceeds the requested timeout.
+    """

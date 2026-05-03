@@ -96,6 +96,22 @@ def result_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def orphans_command(args: argparse.Namespace) -> int:
+    config()
+    rows = runtime.ledger.list_orphans(
+        scope=args.scope,
+        name=args.name,
+        key=args.key,
+        limit=args.limit,
+    )
+    for row in rows:
+        print(
+            f"{row['work_id'][:12]}  {row['status']:<9}  "
+            f"{row['call_name']:<24}  scope={row['return_scope'] or '-'}"
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="spun")
     sub = parser.add_subparsers(dest="command")
@@ -121,6 +137,13 @@ def build_parser() -> argparse.ArgumentParser:
     result = sub.add_parser("result")
     result.add_argument("work_id")
     result.set_defaults(func=result_command)
+
+    orphans = sub.add_parser("orphans")
+    orphans.add_argument("--scope")
+    orphans.add_argument("--name")
+    orphans.add_argument("--key")
+    orphans.add_argument("--limit", type=int, default=50)
+    orphans.set_defaults(func=orphans_command)
 
     return parser
 

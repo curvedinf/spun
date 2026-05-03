@@ -10,7 +10,9 @@ import uuid
 
 from wove import Weave, weave
 
+from .calls import call
 from .ledger import WorkItem, utc_now
+from .promise import CallPromise
 from .runtime import config, runtime
 from .schedule import next_after, registry as schedule_registry
 from .serialization import dumps, loads
@@ -99,15 +101,31 @@ class Worker:
         payload = loads(item.payload)
         payload_type = payload.get("type")
         if payload_type == "wove_task":
-            return self._execute_callable(payload["callable"], payload["args"])
+            return self._execute_callable(payload["callable"], kwargs=payload["args"])
+        if payload_type == "spun_call":
+            return self._execute_call(payload["name"], payload["args"], payload["kwargs"])
         if payload_type == "scheduled_work":
             return self._execute_scheduled(payload["work"])
         raise ValueError(f"Unknown Spun payload type: {payload_type}")
 
-    def _execute_callable(self, func: object, args: dict) -> object:
+    def _execute_call(self, name: str, args: tuple, kwargs: dict) -> object:
+        func = call.resolve(name)
+        return self._execute_callable(func, args=args, kwargs=kwargs)
+
+    def _execute_callable(
+        self,
+        func: object,
+        *,
+        args: tuple = (),
+        kwargs: Optional[dict] = None,
+    ) -> object:
+        kwargs = kwargs or {}
+
         async def run_value() -> object:
-            value = func(**args)
+            value = func(*args, **kwargs)
             if inspect.isawaitable(value):
+                value = await value
+            if isinstance(value, CallPromise):
                 return await value
             return value
 
@@ -129,7 +147,7 @@ class Worker:
                 pass
             return w.result.final
 
-        value = self._execute_callable(work, {})
+        value = self._execute_callable(work)
         result = getattr(value, "result", None)
         if result is not None and hasattr(result, "final"):
             return result.final
